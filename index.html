@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Federated Learning サンドボックス（病院版）</title>
+<style>
+  :root{
+    --bg:#f4f6fb; --panel:#ffffff; --ink:#1f2733; --muted:#6b7585;
+    --line:#e2e7f0; --accent:#5b6cff; --accent2:#7a5bff;
+    --c1:#e4572e;  /* class 1 : 高リスク/イベントあり */
+    --c0:#2e86de;  /* class 0 : 低リスク/イベントなし */
+    --local:#7a5bff; --global:#9aa3b2; --central:#e1a100; --truth:#b9c0cc;
+    --ok:#1f9d6b; --lock:#127a56;
+    --shadow:0 2px 10px rgba(31,39,51,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic UI",Meiryo,system-ui,sans-serif;
+    font-size:14px; line-height:1.5;
+  }
+  .wrap{max-width:1140px; margin:0 auto; padding:18px 18px 60px;}
+  header h1{font-size:22px; margin:0 0 4px;}
+  header p{margin:0; color:var(--muted); font-size:13px;}
+  .badges{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;}
+  .badge{font-size:12px; padding:4px 10px; border-radius:999px; background:#eef1fb; color:#3a4250; border:1px solid var(--line);}
+  .badge.green{background:#e7f6ef; color:var(--lock); border-color:#cdebdd;}
+
+  /* controls */
+  .controls{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:12px 14px; margin:14px 0; box-shadow:var(--shadow);
+    display:flex; gap:18px; flex-wrap:wrap; align-items:flex-end;
+  }
+  .btns{display:flex; gap:8px; flex-wrap:wrap;}
+  button{
+    font:inherit; cursor:pointer; border:1px solid var(--line); background:#fff;
+    padding:8px 14px; border-radius:10px; color:var(--ink); transition:.12s;
+  }
+  button:hover{border-color:var(--accent); color:var(--accent);}
+  button.primary{background:var(--accent); color:#fff; border-color:var(--accent);}
+  button.primary:hover{background:#4456f0; color:#fff;}
+  button:disabled{opacity:.45; cursor:default; border-color:var(--line); color:var(--muted);}
+  .sliders{display:flex; gap:16px; flex-wrap:wrap;}
+  .field{display:flex; flex-direction:column; gap:2px; min-width:118px;}
+  .field label{font-size:11px; color:var(--muted);}
+  .field .val{font-variant-numeric:tabular-nums; font-weight:600; font-size:12px;}
+  input[type=range]{width:130px; accent-color:var(--accent);}
+  .chk{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted);}
+
+  /* status banner */
+  .status{
+    display:flex; align-items:center; gap:12px; margin:0 0 12px;
+    background:linear-gradient(90deg,#eef1ff,#f7f4ff); border:1px solid #e3e6fb;
+    border-radius:12px; padding:10px 14px;
+  }
+  .status .step{font-weight:700; color:var(--accent2);}
+  .status .txt{font-size:13.5px;}
+  .status .rnd{margin-left:auto; font-size:12px; color:var(--muted); white-space:nowrap;}
+  .status .rnd b{color:var(--ink); font-size:15px; font-variant-numeric:tabular-nums;}
+
+  /* fabric (server + wires + hospitals) */
+  #fabric{position:relative;}
+  svg#wires{position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:5;}
+
+  .server{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    box-shadow:var(--shadow); padding:14px 16px; margin-bottom:30px;
+    display:flex; gap:18px; align-items:center; flex-wrap:wrap;
+  }
+  .server.active{border-color:var(--accent); box-shadow:0 0 0 3px rgba(91,108,255,.12);}
+  .server .title{display:flex; align-items:center; gap:8px; font-weight:700;}
+  .server .title .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);}
+  .server .meta{color:var(--muted); font-size:12px; margin-top:2px;}
+  .server .ov-wrap{display:flex; flex-direction:column; gap:6px;}
+  .server .ov-note{font-size:11px; color:var(--muted); max-width:280px;}
+  .server .gstats{display:flex; flex-direction:column; gap:8px; min-width:200px;}
+  .kv{display:flex; justify-content:space-between; gap:10px; font-size:12.5px; border-bottom:1px dashed var(--line); padding-bottom:5px;}
+  .kv .k{color:var(--muted);} .kv .v{font-variant-numeric:tabular-nums; font-weight:600;}
+  .wtag{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; background:#f2f4fb; padding:2px 6px; border-radius:6px;}
+  .legend{display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:var(--muted); margin-top:4px;}
+  .legend span{display:inline-flex; align-items:center; gap:5px;}
+  .swatch{width:18px; height:0; border-top-width:3px; border-top-style:solid; display:inline-block;}
+  .dotpt{width:9px;height:9px;border-radius:50%; display:inline-block;}
+
+  /* hospitals */
+  .hospitals{display:flex; gap:14px; flex-wrap:wrap; justify-content:center;}
+  .card{
+    width:212px; background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    box-shadow:var(--shadow); padding:10px 10px 12px; transition:.15s;
+  }
+  .card.active{border-color:var(--local); box-shadow:0 0 0 3px rgba(122,91,255,.14);}
+  .card .chead{display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;}
+  .card .hname{font-weight:700; font-size:14px;}
+  .card .lock{font-size:11px; color:var(--lock); background:#e7f6ef; border:1px solid #cdebdd;
+    padding:2px 7px; border-radius:999px; white-space:nowrap;}
+  .card canvas{display:block; border-radius:8px; background:#fbfcfe; border:1px solid var(--line);}
+  .card .cfoot{display:flex; justify-content:space-between; align-items:center; margin-top:7px; font-size:11px;}
+  .card .cfoot .w{font-family:ui-monospace,Menlo,Consolas,monospace; color:var(--local);}
+  .card .cfoot .acc{color:var(--muted);} .card .cfoot .acc b{color:var(--ink);}
+
+  /* analysis */
+  .analysis{display:flex; gap:14px; flex-wrap:wrap; margin-top:8px;}
+  .ledger{
+    flex:1 1 320px; background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    box-shadow:var(--shadow); padding:14px 16px;
+  }
+  .ledger h3, .chartbox h3{margin:0 0 10px; font-size:14px;}
+  .ledrow{display:flex; gap:12px; align-items:flex-start; padding:10px 0; border-top:1px solid var(--line);}
+  .ledrow:first-of-type{border-top:none;}
+  .ledrow .ic{font-size:20px; line-height:1;}
+  .ledrow .big{font-size:18px; font-weight:700; font-variant-numeric:tabular-nums;}
+  .ledrow.out .big{color:var(--accent);}
+  .ledrow.stay .big{color:var(--lock);}
+  .ledrow .sub{font-size:11.5px; color:var(--muted);}
+  .chartbox{
+    flex:1 1 480px; background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    box-shadow:var(--shadow); padding:14px 16px;
+  }
+  .chartbox .clegend{display:flex; gap:16px; flex-wrap:wrap; font-size:11.5px; color:var(--muted); margin-top:6px;}
+  .log{margin-top:10px; max-height:96px; overflow:auto; font-size:11.5px; color:var(--muted);
+    font-family:ui-monospace,Menlo,Consolas,monospace; background:#fafbfe; border:1px solid var(--line);
+    border-radius:8px; padding:8px;}
+  .log div{padding:1px 0;}
+  .foot{margin-top:22px; font-size:11.5px; color:var(--muted); text-align:center;}
+  .packet rect{fill:#fff; stroke:var(--accent); }
+  .packet text{fill:var(--accent2); font-family:ui-monospace,Menlo,Consolas,monospace;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🏥 Federated Learning サンドボックス</h1>
+    <p>複数の病院が「患者データを一切外に出さない」まま、サーバーを介して1つの予測モデルを共同で育てる様子を体感できます。</p>
+    <div class="badges">
+      <span class="badge green">🔌 通信ゼロ：このページは外部と一切通信しません（すべてブラウザ内で計算）</span>
+      <span class="badge">⚙️ GPU不要 / 軽量ロジスティック回帰</span>
+    </div>
+  </header>
+
+  <!-- controls -->
+  <div class="controls">
+    <div class="btns">
+      <button id="btnPlay" class="primary">▶ 再生</button>
+      <button id="btnStep">⏭ 1ラウンド</button>
+      <button id="btnReset">⟲ リセット</button>
+    </div>
+    <div class="sliders">
+      <div class="field">
+        <label>病院の数 <span class="val" id="vK">4</span></label>
+        <input type="range" id="sK" min="2" max="6" step="1" value="4">
+      </div>
+      <div class="field">
+        <label>非IIDの強さ <span class="val" id="vNoniid">0.6</span></label>
+        <input type="range" id="sNoniid" min="0" max="1" step="0.05" value="0.6">
+      </div>
+      <div class="field">
+        <label>ローカル学習回数 <span class="val" id="vEpoch">8</span></label>
+        <input type="range" id="sEpoch" min="1" max="20" step="1" value="8">
+      </div>
+      <div class="field">
+        <label>学習率 <span class="val" id="vLr">2.0</span></label>
+        <input type="range" id="sLr" min="0.2" max="4" step="0.1" value="2.0">
+      </div>
+      <div class="field">
+        <label>再生速度 <span class="val" id="vSpeed">1.0×</span></label>
+        <input type="range" id="sSpeed" min="0.25" max="3" step="0.25" value="1">
+      </div>
+      <div class="field" style="justify-content:flex-end;">
+        <label class="chk"><input type="checkbox" id="cGhost" checked> 中央集約の理想線を表示</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- status -->
+  <div class="status">
+    <span class="step" id="stStep">▶</span>
+    <span class="txt" id="stTxt">「▶ 再生」または「⏭ 1ラウンド」で開始してください。</span>
+    <span class="rnd">ラウンド <b id="stRound">0</b> ／ 共有モデル精度 <b id="stAcc">—</b></span>
+  </div>
+
+  <!-- fabric -->
+  <div id="fabric">
+    <svg id="wires"><g id="staticWires"></g><g id="packets"></g></svg>
+
+    <div class="server" id="serverPanel">
+      <div class="ov-wrap">
+        <div class="title"><span class="dot"></span>サーバー（共有モデル）</div>
+        <canvas id="ovCanvas"></canvas>
+        <div class="ov-note">※この俯瞰図は<strong>観客用の答え合わせ</strong>です。サーバー自身は患者データを持たず、各病院から届く「重み」だけを見ています。</div>
+      </div>
+      <div class="gstats">
+        <div class="kv"><span class="k">現在の共有重み</span><span class="v wtag" id="gWeights">[—]</span></div>
+        <div class="kv"><span class="k">共有モデル精度</span><span class="v" id="gAcc">—</span></div>
+        <div class="kv"><span class="k">中央集約の理想精度</span><span class="v" id="gCentral">—</span></div>
+        <div class="kv"><span class="k">単独学習の平均精度</span><span class="v" id="gSolo">—</span></div>
+        <div class="legend">
+          <span><i class="dotpt" style="background:var(--c1)"></i>高リスク（イベントあり）</span>
+          <span><i class="dotpt" style="background:var(--c0)"></i>低リスク</span>
+        </div>
+        <div class="legend">
+          <span><i class="swatch" style="border-color:var(--local)"></i>各病院モデル</span>
+          <span><i class="swatch" style="border-color:var(--global); border-top-style:dashed"></i>共有モデル</span>
+          <span><i class="swatch" style="border-color:var(--central); border-top-style:dashed"></i>中央集約の理想</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hospitals" id="hospitals"></div>
+  </div>
+
+  <!-- analysis -->
+  <div class="analysis">
+    <div class="ledger">
+      <h3>🔐 プライバシー台帳：ネットワークを流れたもの</h3>
+      <div class="ledrow out">
+        <div class="ic">📤</div>
+        <div>
+          <div class="big" id="ledOut">0 個 / 0 バイト</div>
+          <div class="sub">院外に出たのは<strong>モデルの重み（数値）だけ</strong>。サーバー⇔各病院を往復した累計です。</div>
+        </div>
+      </div>
+      <div class="ledrow stay">
+        <div class="ic">🔒</div>
+        <div>
+          <div class="big" id="ledStay">0 件（送信 0 回）</div>
+          <div class="sub">院内に留まった<strong>患者レコード</strong>。一度もネットワークに出ていません。</div>
+        </div>
+      </div>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div class="chartbox">
+      <h3>📈 ラウンドごとの精度</h3>
+      <canvas id="chartCanvas"></canvas>
+      <div class="clegend">
+        <span><i class="swatch" style="border-color:var(--local)"></i>連合学習（共有モデル）</span>
+        <span><i class="swatch" style="border-color:var(--global); border-top-style:dotted"></i>各病院が単独学習した場合の平均</span>
+        <span><i class="swatch" style="border-color:var(--central); border-top-style:dashed"></i>全データ集約の理想（上限）</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">単一HTMLファイル / 依存ライブラリなし / 外部通信なし。ソースを開けば fetch も XHR も無いことを確認できます。</div>
+</div>
+
+<script>
+"use strict";
+(function(){
+  // ---------- math / model ----------
+  const TRUE = {a:1.3, b:0.7, c:1.0};        // 真の境界  a*x1 + b*x2 = c
+  const SEG_A = {x:0.769, y:0.0};            // 単位正方形内での境界端点
+  const SEG_B = {x:0.231, y:1.0};
+  const DHAT  = (function(){const dx=SEG_B.x-SEG_A.x, dy=SEG_B.y-SEG_A.y, L=Math.hypot(dx,dy); return {x:dx/L,y:dy/L};})();
+  const NHAT  = (function(){const L=Math.hypot(TRUE.a,TRUE.b); return {x:TRUE.a/L,y:TRUE.b/L};})();
+  const NOISE = 0.08, L2 = 0.002;
+
+  const clamp01 = x => Math.max(0, Math.min(1, x));
+  const lerp = (a,b,t)=> a+(b-a)*t;
+  const ease = t => t*t*(3-2*t);
+  const sig = z => 1/(1+Math.exp(-z));
+  function randn(){ let u=0,v=0; while(u===0)u=Math.random(); while(v===0)v=Math.random();
+    return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+  const lerp3 = (A,B,t)=>[lerp(A[0],B[0],t),lerp(A[1],B[1],t),lerp(A[2],B[2],t)];
+  function prob(w,x1,x2){ return sig(w[0]+w[1]*x1+w[2]*x2); }
+  function accuracy(w,set){ let c=0; for(const p of set){ if((prob(w,p.x1,p.x2)>=0.5?1:0)===p.y)c++; } return set.length? c/set.length : 0; }
+  function trainLocal(w0, pts, lr, epochs){
+    let w=w0.slice(); const n=pts.length||1;
+    for(let e=0;e<epochs;e++){
+      let g0=0,g1=0,g2=0;
+      for(const p of pts){ const err=sig(w[0]+w[1]*p.x1+w[2]*p.x2)-p.y; g0+=err; g1+=err*p.x1; g2+=err*p.x2; }
+      g0/=n; g1/=n; g2/=n; g1+=L2*w[1]; g2+=L2*w[2];
+      w[0]-=lr*g0; w[1]-=lr*g1; w[2]-=lr*g2;
+    }
+    return w;
+  }
+  function trueLabel(x1,x2){ let y=(TRUE.a*x1+TRUE.b*x2-TRUE.c)>0?1:0; if(Math.random()<NOISE)y=1-y; return y; }
+
+  // ---------- data generation ----------
+  function makeHospital(k, K, nonIID){
+    const t=(k+0.5)/K;
+    const cx=SEG_A.x+t*(SEG_B.x-SEG_A.x), cy=SEG_A.y+t*(SEG_B.y-SEG_A.y);
+    const along=lerp(0.5,0.05,nonIID), perp=0.22;
+    const n=30+Math.floor(Math.random()*31);  // 30..60
+    const pts=[];
+    for(let i=0;i<n;i++){
+      const a=randn()*along, p=randn()*perp;
+      const x1=clamp01(cx+DHAT.x*a+NHAT.x*p);
+      const x2=clamp01(cy+DHAT.y*a+NHAT.y*p);
+      pts.push({x1,x2,y:trueLabel(x1,x2)});
+    }
+    return {name:String.fromCharCode(65+k)+"病院", patients:pts, n,
+            wLocal:[0,0,0], wLocalNew:[0,0,0], wSolo:[0,0,0], wSoloNew:[0,0,0],
+            animFrom:[0,0,0], animTo:[0,0,0], accLocal:0};
+  }
+
+  // ---------- state ----------
+  const PHASES=["broadcast","train","upload","aggregate"];
+  const DUR={broadcast:0.7, train:1.0, upload:0.7, aggregate:0.55};
+  const STEPTXT={
+    idle:["▶","「▶ 再生」または「⏭ 1ラウンド」で開始してください。"],
+    broadcast:["①","サーバーが現在の共有モデル（重み3個）を各病院へ<strong>配布</strong>しています。"],
+    train:["②","各病院が<strong>自院の患者データだけ</strong>でモデルを微調整中（データは院外に出ません）。"],
+    upload:["③","各病院は学習後の<strong>重みだけ</strong>をサーバーへ返送（患者データは送りません）。"],
+    aggregate:["④","サーバーが重みを<strong>患者数で加重平均（FedAvg）</strong>し、新しい共有モデルを作成。"]
+  };
+
+  const S = {
+    K:4, nonIID:0.6, epochs:8, lr:2.0, speed:1.0, showGhost:true,
+    hospitals:[], pool:[], wGlobal:[0,0,0], wCentral:[0,0,0], centralAcc:0,
+    round:0, inRound:false, phaseIndex:0, phaseElapsed:0, playing:false, stepOnce:false,
+    history:[], ledger:{weights:0, bytes:0},
+    el:{}, ctxH:[], dimH:[], ovCtx:null, ovDim:null, chCtx:null, chDim:null
+  };
+
+  // ---------- DOM refs ----------
+  const $=id=>document.getElementById(id);
+  S.el={
+    fabric:$("fabric"), wires:$("wires"), staticWires:$("staticWires"), packets:$("packets"),
+    serverPanel:$("serverPanel"), hospitals:$("hospitals"),
+    btnPlay:$("btnPlay"), btnStep:$("btnStep"), btnReset:$("btnReset"),
+    sK:$("sK"), sNoniid:$("sNoniid"), sEpoch:$("sEpoch"), sLr:$("sLr"), sSpeed:$("sSpeed"), cGhost:$("cGhost"),
+    vK:$("vK"), vNoniid:$("vNoniid"), vEpoch:$("vEpoch"), vLr:$("vLr"), vSpeed:$("vSpeed"),
+    stStep:$("stStep"), stTxt:$("stTxt"), stRound:$("stRound"), stAcc:$("stAcc"),
+    gWeights:$("gWeights"), gAcc:$("gAcc"), gCentral:$("gCentral"), gSolo:$("gSolo"),
+    ledOut:$("ledOut"), ledStay:$("ledStay"), log:$("log"),
+    ovCanvas:$("ovCanvas"), chartCanvas:$("chartCanvas")
+  };
+
+  // ---------- canvas helpers ----------
+  function fit(cv,w,h){
+    const dpr=window.devicePixelRatio||1;
+    cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr);
+    cv.style.width=w+"px"; cv.style.height=h+"px";
+    const ctx=cv.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0);
+    return {ctx,w,h};
+  }
+  function boundaryPts(w){
+    const pts=[], add=(x1,x2)=>{ if(x1>=-1e-6&&x1<=1+1e-6&&x2>=-1e-6&&x2<=1+1e-6) pts.push([clamp01(x1),clamp01(x2)]); };
+    if(Math.abs(w[2])>1e-9){ add(0,-w[0]/w[2]); add(1,-(w[0]+w[1])/w[2]); }
+    if(Math.abs(w[1])>1e-9){ add(-w[0]/w[1],0); add(-(w[0]+w[2])/w[1],1); }
+    const uniq=[]; for(const p of pts){ if(!uniq.some(q=>Math.abs(q[0]-p[0])<1e-4&&Math.abs(q[1]-p[1])<1e-4)) uniq.push(p); }
+    return uniq.length>=2?[uniq[0],uniq[1]]:null;
+  }
+  function drawPlot(ctx,W,H,pts,lines,faint){
+    const padL=22,padB=18,padT=8,padR=8;
+    const X=x=>padL+x*(W-padL-padR), Y=y=>(H-padB)-y*(H-padT-padB);
+    ctx.clearRect(0,0,W,H);
+    // axes
+    ctx.strokeStyle="#e8ecf3"; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(padL,padT); ctx.lineTo(padL,H-padB); ctx.lineTo(W-padR,H-padB); ctx.stroke();
+    ctx.fillStyle="#9aa3b2"; ctx.font="9px sans-serif";
+    ctx.fillText("年齢→",W-40,H-6);
+    ctx.save(); ctx.translate(9,padT+30); ctx.rotate(-Math.PI/2); ctx.fillText("検査値→",0,0); ctx.restore();
+    // points
+    for(const p of pts){
+      ctx.beginPath(); ctx.arc(X(p.x1),Y(p.x2),3,0,7);
+      ctx.fillStyle=p.y? "rgba(228,87,46,"+(faint?0.32:0.9)+")" : "rgba(46,134,222,"+(faint?0.32:0.9)+")";
+      ctx.fill();
+    }
+    // lines
+    for(const ln of lines){
+      const bp=boundaryPts(ln.w); if(!bp)continue;
+      ctx.beginPath(); ctx.moveTo(X(bp[0][0]),Y(bp[0][1])); ctx.lineTo(X(bp[1][0]),Y(bp[1][1]));
+      ctx.strokeStyle=ln.color; ctx.lineWidth=ln.width||2.5;
+      ctx.setLineDash(ln.dash||[]); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+
+  // ---------- build hospitals ----------
+  function buildHospitals(){
+    S.el.hospitals.innerHTML=""; S.ctxH=[]; S.dimH=[];
+    S.hospitals.forEach((h,k)=>{
+      const card=document.createElement("div"); card.className="card"; card.dataset.k=k;
+      card.innerHTML=
+        '<div class="chead"><span class="hname">'+h.name+'</span>'+
+        '<span class="lock">🔒 患者 '+h.n+'人</span></div>'+
+        '<canvas></canvas>'+
+        '<div class="cfoot"><span class="w" data-w>[—]</span><span class="acc">院内精度 <b data-acc>—</b></span></div>';
+      S.el.hospitals.appendChild(card);
+      const cv=card.querySelector("canvas");
+      S.ctxH[k]=fit(cv,190,140); S.dimH[k]={cv};
+      h._card=card; h._wTag=card.querySelector("[data-w]"); h._accTag=card.querySelector("[data-acc]");
+    });
+  }
+
+  // ---------- wires ----------
+  function hubs(){
+    const fr=S.el.fabric.getBoundingClientRect();
+    const sr=S.el.serverPanel.getBoundingClientRect();
+    const server={x:sr.left+sr.width/2-fr.left, y:sr.bottom-fr.top};
+    const hh=S.hospitals.map(h=>{ const r=h._card.getBoundingClientRect();
+      return {x:r.left+r.width/2-fr.left, y:r.top-fr.top}; });
+    return {server,hh};
+  }
+  function layoutWires(){
+    const fr=S.el.fabric.getBoundingClientRect();
+    S.el.wires.setAttribute("width",fr.width); S.el.wires.setAttribute("height",fr.height);
+    S.el.wires.setAttribute("viewBox","0 0 "+fr.width+" "+fr.height);
+    const {server,hh}=hubs(); let s="";
+    for(const p of hh){
+      const my=(server.y+p.y)/2;
+      s+='<path d="M '+server.x+' '+server.y+' C '+server.x+' '+my+' '+p.x+' '+my+' '+p.x+' '+p.y+
+         '" fill="none" stroke="#e2e7f0" stroke-width="2"/>';
+    }
+    S.el.staticWires.innerHTML=s;
+  }
+  function curvePoint(s,e,t){ const my=(s.y+e.y)/2; const u=1-t;
+    const x=u*u*u*s.x+3*u*u*t*s.x+3*u*t*t*e.x+t*t*t*e.x;
+    const y=u*u*u*s.y+3*u*u*t*my+3*u*t*t*my+t*t*t*e.y;
+    return {x,y};
+  }
+  function drawPackets(){
+    const ph=S.inRound?PHASES[S.phaseIndex]:"idle";
+    if(ph!=="broadcast"&&ph!=="upload"){ S.el.packets.innerHTML=""; return; }
+    const t=ease(Math.min(S.phaseElapsed/DUR[ph],1));
+    const {server,hh}=hubs(); let s="";
+    S.hospitals.forEach((h,k)=>{
+      const down=ph==="broadcast";
+      const pos=down?curvePoint(server,hh[k],t):curvePoint(hh[k],server,t);
+      const w=down?S.wGlobal:h.wLocalNew;
+      const label="["+w.map(v=>v.toFixed(1)).join(", ")+"]";
+      s+='<g class="packet" transform="translate('+(pos.x-44)+','+(pos.y-15)+')">'+
+         '<rect width="88" height="30" rx="7" stroke-width="1.5"/>'+
+         '<text x="44" y="12" text-anchor="middle" font-size="8.5">重み</text>'+
+         '<text x="44" y="23" text-anchor="middle" font-size="9">'+label+'</text></g>';
+    });
+    S.el.packets.innerHTML=s;
+  }
+
+  // ---------- round machine ----------
+  function enterPhase(ph){
+    if(ph==="broadcast"){
+      S.hospitals.forEach(h=>{ h.animFrom=h.wLocal.slice(); h.animTo=S.wGlobal.slice(); });
+    } else if(ph==="train"){
+      S.hospitals.forEach(h=>{
+        h.wLocalNew=trainLocal(S.wGlobal, h.patients, S.lr, S.epochs);
+        h.wSoloNew =trainLocal(h.wSolo,   h.patients, S.lr, S.epochs);
+        h.accLocal =accuracy(h.wLocalNew, h.patients);
+        h.animFrom=S.wGlobal.slice(); h.animTo=h.wLocalNew.slice();
+      });
+    } else { // upload / aggregate -> hold at local
+      S.hospitals.forEach(h=>{ h.animFrom=h.wLocalNew.slice(); h.animTo=h.wLocalNew.slice(); });
+    }
+  }
+  function startRound(){ S.inRound=true; S.phaseIndex=0; S.phaseElapsed=0; enterPhase(PHASES[0]); }
+  function finishRound(){
+    // FedAvg
+    let tot=0,acc=[0,0,0];
+    for(const h of S.hospitals){ tot+=h.n; for(let i=0;i<3;i++) acc[i]+=h.n*h.wLocalNew[i]; }
+    for(let i=0;i<3;i++) acc[i]/=tot;
+    S.wGlobal=acc;
+    S.hospitals.forEach(h=>{ h.wLocal=h.wLocalNew.slice(); h.wSolo=h.wSoloNew.slice(); });
+    S.round++;
+    // metrics
+    const fed=accuracy(S.wGlobal,S.pool);
+    let solo=0; for(const h of S.hospitals) solo+=accuracy(h.wSolo,S.pool); solo/=S.hospitals.length;
+    S.history.push({round:S.round, fed, solo, central:S.centralAcc});
+    // ledger: K*3 weights down + K*3 up, 4 bytes each (float32)
+    const cnt=S.K*3*2; S.ledger.weights+=cnt; S.ledger.bytes+=cnt*4;
+    addLog("R"+S.round+": ↓共有重み配布 → 各院ローカル学習 → ↑重み"+(S.K*3)+"個受信 → FedAvg集約 (精度 "+(fed*100).toFixed(1)+"%)");
+  }
+
+  function addLog(msg){
+    const d=document.createElement("div"); d.textContent=msg;
+    S.el.log.prepend(d);
+    while(S.el.log.childElementCount>40) S.el.log.lastChild.remove();
+  }
+
+  // ---------- update / render ----------
+  function update(dt){
+    if(!S.inRound) return;
+    S.phaseElapsed+=dt*S.speed;
+    const ph=PHASES[S.phaseIndex];
+    if(S.phaseElapsed>=DUR[ph]){
+      S.phaseElapsed=0; S.phaseIndex++;
+      if(S.phaseIndex>=PHASES.length){
+        finishRound(); S.inRound=false;
+        if(S.playing && !S.stepOnce) startRound();
+        else { S.stepOnce=false; if(!S.playing) setPlayUI(false); }
+      } else enterPhase(PHASES[S.phaseIndex]);
+    }
+  }
+
+  function render(){
+    const ph=S.inRound?PHASES[S.phaseIndex]:"idle";
+    const t=S.inRound?Math.min(S.phaseElapsed/DUR[ph],1):0;
+    // status
+    const st=STEPTXT[ph]; S.el.stStep.textContent=st[0]; S.el.stTxt.innerHTML=st[1];
+    S.el.stRound.textContent=S.round;
+    const lastFed=S.history.length?S.history[S.history.length-1].fed:null;
+    S.el.stAcc.textContent=lastFed!=null?(lastFed*100).toFixed(1)+"%":"—";
+    // panel active states
+    S.el.serverPanel.classList.toggle("active", ph==="broadcast"||ph==="aggregate");
+    S.hospitals.forEach(h=>h._card.classList.toggle("active", ph==="train"||ph==="upload"));
+
+    // hospital plots
+    S.hospitals.forEach((h,k)=>{
+      let disp;
+      if(ph==="broadcast"||ph==="train") disp=lerp3(h.animFrom,h.animTo,ease(t));
+      else if(ph==="upload"||ph==="aggregate") disp=h.wLocalNew;
+      else disp=h.wLocal;
+      const C=S.ctxH[k];
+      const lines=[{w:S.wGlobal,color:getCss("--global"),dash:[4,4],width:1.6}];
+      lines.push({w:disp,color:getCss("--local"),width:2.6});
+      drawPlot(C.ctx,C.w,C.h,h.patients,lines,false);
+      h._wTag.textContent="["+disp.map(v=>v.toFixed(1)).join(", ")+"]";
+      h._accTag.textContent=(h.accLocal*100).toFixed(0)+"%";
+    });
+
+    // overview
+    drawOverview();
+
+    // wires + packets
+    drawPackets();
+
+    // global stats
+    S.el.gWeights.textContent="["+S.wGlobal.map(v=>v.toFixed(2)).join(", ")+"]";
+    S.el.gAcc.textContent=lastFed!=null?(lastFed*100).toFixed(1)+"%":"—";
+    S.el.gCentral.textContent=(S.centralAcc*100).toFixed(1)+"%";
+    const lastSolo=S.history.length?S.history[S.history.length-1].solo:null;
+    S.el.gSolo.textContent=lastSolo!=null?(lastSolo*100).toFixed(1)+"%":"—";
+
+    // ledger
+    S.el.ledOut.textContent=S.ledger.weights.toLocaleString()+" 個 / "+S.ledger.bytes.toLocaleString()+" バイト";
+    S.el.ledStay.textContent=S.pool.length.toLocaleString()+" 件（送信 0 回）";
+
+    // chart
+    drawChart();
+  }
+
+  function getCss(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+  function drawOverview(){
+    const C=S.ovCtx; if(!C)return;
+    const lines=[{w:[ -(TRUE.c), TRUE.a, TRUE.b], color:getCss("--truth"), dash:[2,3], width:1.4}];
+    if(S.showGhost) lines.push({w:S.wCentral,color:getCss("--central"),dash:[6,4],width:2});
+    lines.push({w:S.wGlobal,color:getCss("--global"),width:2.6});
+    drawPlot(C.ctx,C.w,C.h,S.pool,lines,true);
+  }
+
+  function drawChart(){
+    const C=S.chCtx; if(!C)return; const {ctx,w,h}=C;
+    const padL=34,padB=20,padT=8,padR=8;
+    ctx.clearRect(0,0,w,h);
+    const xmax=Math.max(10,S.round);
+    const ylo=0.4, yhi=1.0;
+    const X=r=>padL+(r/xmax)*(w-padL-padR);
+    const Y=a=>(h-padB)-((a-ylo)/(yhi-ylo))*(h-padT-padB);
+    // grid
+    ctx.strokeStyle="#eef1f7"; ctx.fillStyle="#9aa3b2"; ctx.font="9px sans-serif"; ctx.lineWidth=1;
+    for(let a=0.5;a<=1.0001;a+=0.1){
+      ctx.beginPath(); ctx.moveTo(padL,Y(a)); ctx.lineTo(w-padR,Y(a)); ctx.stroke();
+      ctx.fillText((a*100).toFixed(0)+"%",4,Y(a)+3);
+    }
+    ctx.fillText("ラウンド",w-46,h-6);
+    // central baseline (constant)
+    if(S.centralAcc>0){
+      ctx.strokeStyle=getCss("--central"); ctx.setLineDash([6,4]); ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.moveTo(padL,Y(S.centralAcc)); ctx.lineTo(w-padR,Y(S.centralAcc)); ctx.stroke(); ctx.setLineDash([]);
+    }
+    const series=(key,color,dash,width)=>{
+      if(S.history.length<1)return;
+      ctx.strokeStyle=color; ctx.setLineDash(dash); ctx.lineWidth=width;
+      ctx.beginPath();
+      S.history.forEach((pt,i)=>{ const x=X(pt.round),y=Y(pt[key]); if(i===0)ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+      ctx.stroke(); ctx.setLineDash([]);
+      const last=S.history[S.history.length-1];
+      ctx.fillStyle=color; ctx.beginPath(); ctx.arc(X(last.round),Y(last[key]),3,0,7); ctx.fill();
+    };
+    series("solo",getCss("--global"),[2,3],1.8);
+    series("fed",getCss("--local"),[],2.6);
+  }
+
+  // ---------- reset / regenerate ----------
+  function regenerate(){
+    S.hospitals=[]; for(let k=0;k<S.K;k++) S.hospitals.push(makeHospital(k,S.K,S.nonIID));
+    S.pool=[]; for(const h of S.hospitals) for(const p of h.patients) S.pool.push(p);
+    // global init (small random so an initial — bad — line is visible)
+    const w0=[0, randn()*0.3, randn()*0.3];
+    S.wGlobal=w0.slice();
+    S.hospitals.forEach(h=>{ h.wLocal=w0.slice(); h.wLocalNew=w0.slice(); h.wSolo=w0.slice(); h.wSoloNew=w0.slice(); });
+    // centralized ideal (trained on the full pool, the privacy-violating baseline)
+    S.wCentral=trainLocal([0,0,0],S.pool,2.0,500);
+    S.centralAcc=accuracy(S.wCentral,S.pool);
+    // metrics round 0
+    S.round=0; S.inRound=false; S.phaseIndex=0; S.phaseElapsed=0;
+    const fed0=accuracy(S.wGlobal,S.pool);
+    S.history=[{round:0, fed:fed0, solo:fed0, central:S.centralAcc}];
+    S.ledger={weights:0,bytes:0};
+    S.el.log.innerHTML="";
+    addLog("初期化: "+S.K+"病院 / 患者合計 "+S.pool.length+"人 / 非IID "+S.nonIID.toFixed(2));
+    buildHospitals();
+    requestAnimationFrame(()=>{ layoutWires(); });
+  }
+
+  function setPlayUI(on){ S.el.btnPlay.textContent=on?"⏸ 一時停止":"▶ 再生"; }
+
+  // ---------- controls ----------
+  S.el.btnPlay.addEventListener("click",()=>{
+    S.playing=!S.playing; setPlayUI(S.playing);
+    if(S.playing && !S.inRound) startRound();
+  });
+  S.el.btnStep.addEventListener("click",()=>{
+    if(S.inRound)return; S.playing=false; setPlayUI(false); S.stepOnce=true; startRound();
+  });
+  S.el.btnReset.addEventListener("click",()=>{
+    S.playing=false; setPlayUI(false); S.stepOnce=false; regenerate();
+  });
+  const bind=(slider,label,fmt,onChange,regen)=>{
+    slider.addEventListener("input",()=>{
+      const v=parseFloat(slider.value); label.textContent=fmt(v); onChange(v);
+      if(regen){ S.playing=false; setPlayUI(false); regenerate(); }
+    });
+  };
+  bind(S.el.sK,S.el.vK,v=>v,v=>S.K=v,true);
+  bind(S.el.sNoniid,S.el.vNoniid,v=>v.toFixed(2),v=>S.nonIID=v,true);
+  bind(S.el.sEpoch,S.el.vEpoch,v=>v,v=>S.epochs=v,false);
+  bind(S.el.sLr,S.el.vLr,v=>v.toFixed(1),v=>S.lr=v,false);
+  bind(S.el.sSpeed,S.el.vSpeed,v=>v.toFixed(2)+"×",v=>S.speed=v,false);
+  S.el.cGhost.addEventListener("change",()=>{ S.showGhost=S.el.cGhost.checked; });
+
+  window.addEventListener("resize",()=>{ sizeStaticCanvases(); layoutWires(); });
+
+  function sizeStaticCanvases(){
+    S.ovCtx=fit(S.el.ovCanvas,260,190);
+    const cw=Math.max(360,S.el.chartCanvas.parentElement.clientWidth-34);
+    S.chCtx=fit(S.el.chartCanvas,cw,180);
+  }
+
+  // ---------- main loop ----------
+  let last=null;
+  function frame(ts){
+    if(last==null)last=ts; let dt=(ts-last)/1000; last=ts; if(dt>0.1)dt=0.1;
+    update(dt); render(); requestAnimationFrame(frame);
+  }
+
+  // ---------- init ----------
+  sizeStaticCanvases();
+  regenerate();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
