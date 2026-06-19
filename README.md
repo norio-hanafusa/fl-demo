@@ -71,12 +71,6 @@ cd fl-demo
 - 決定境界が直線なので「モデルが賢くなる = 境界線が動く」のが直感的に見える
 - データはすべて合成（架空）。実在の患者データは含みません
 
-## ライブデモの公開について（GitHub Pages）
-
-ライブデモは GitHub Pages で配信します。リポジトリの **Settings → Pages** で、
-**Source: Deploy from a branch**、**Branch: `main` / `(root)`** を選んで保存すると、
-数十秒〜数分で <https://norio-hanafusa.github.io/fl-demo/> が有効になります。
-
 ## ライセンス
 
 MIT
